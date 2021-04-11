@@ -302,10 +302,7 @@ namespace LocalDNSProxy.Droid
                 "#字符开头的是注释",
                 "#支持*号通配符",
                 "localhost 127.0.0.1",
-                "*.localhost 127.0.0.1",
-                "*.iwara.tv 141.101.120.83",
-                "t66y.com 141.101.120.83",
-                "ajax.googleapis.com 127.0.0.5");
+                "*.localhost 127.0.0.1");
         }
 
 
