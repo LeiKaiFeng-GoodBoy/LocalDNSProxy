@@ -265,7 +265,7 @@ namespace LocalDNSProxy.Droid
                 return new NotificationCompat.Builder(context, channelID)
                                .SetContentTitle(contentTitle)
                                .SetContentText(contentText)
-                               .SetSmallIcon(Resource.Mipmap.icon)
+                               .SetSmallIcon(Resource.Drawable.icon)
                                .SetOngoing(true)
                                .Build();
             };
@@ -301,8 +301,11 @@ namespace LocalDNSProxy.Droid
             return CreateHosts(
                 "#字符开头的是注释",
                 "#支持*号通配符",
-                "localhost 127.0.0.1",
-                "*.localhost 127.0.0.1");
+                "127.0.0.1 localhost",
+                "127.0.0.1 *.localhost",
+                "104.26.12.12 t66y.com",
+                "141.101.120.83 *.iwara.tv",
+                "127.0.0.5 ajax.googleapis.com");
         }
 
 
@@ -315,7 +318,7 @@ namespace LocalDNSProxy.Droid
 
             if (string.IsNullOrWhiteSpace(IPAddress))
             {
-                ip = "1.1.1.1";
+                ip = "114.114.114.114";
             }
             else
             {
@@ -429,11 +432,11 @@ namespace LocalDNSProxy.Droid
                     }
 
 
-                    CheckHost(kv[0]);
+                    CheckHost(kv[1]);
 
 
 
-                    masterFile.AddIPAddressResourceRecord(kv[0], IPAddress.Parse(kv[1]).ToString());
+                    masterFile.AddIPAddressResourceRecord(kv[1], IPAddress.Parse(kv[0]).ToString());
 
                 }
                 catch (FormatException)
