@@ -79,7 +79,8 @@ namespace LocalDNSProxy.Droid
             MasterFile masterFile,
             IPAddress defaultDnsServer,
             IPEndPoint localDnsServerBind,
-            IPEndPoint localUDPBind)
+            IPEndPoint localUDPBind,
+            Action<Task> action)
         {
             //为什么要包装一下MasterFile
             //主要是因为有的浏览器假如应答的域名是通配符，他会认为DNS无效
@@ -90,13 +91,7 @@ namespace LocalDNSProxy.Droid
 
             var task = server.Listen(localDnsServerBind);
 
-            task.ContinueWith((t) =>
-            {
-                if (task.Exception != null)
-                {
-                    MyVpnService.Log(task.Exception);
-                }
-            });
+            action(task);
 
 
 
@@ -146,25 +141,24 @@ namespace LocalDNSProxy.Droid
 
     }
 
+    public sealed class ServerInfo
+    {
+        public ServerInfo(IPAddress dNSAddress, MasterFile masterFile)
+        {
+            DNSAddress = dNSAddress ?? throw new ArgumentNullException(nameof(dNSAddress));
+            MasterFile = masterFile ?? throw new ArgumentNullException(nameof(masterFile));
+        }
+
+        public IPAddress DNSAddress { get; }
+
+        public MasterFile MasterFile { get; }
+    }
 
     [Service(Permission = "android.permission.BIND_VPN_SERVICE")]
     [IntentFilter(actions: new string[] { VpnService.ServiceInterface })]
     public sealed class MyVpnService : VpnService
     {
-       
-        private static readonly object s_lock = new object();
-
-        public static void Log(object e)
-        {
-            string s = System.Environment.NewLine;
-
-            lock (s_lock)
-            {
-                System.IO.File.AppendAllText($"/storage/emulated/0/textvpn.txt", $"{s}{s}{s}{s}{DateTime.Now}{s}{e}", System.Text.Encoding.UTF8);
-            }
-        }
-
-        bool _isrun;
+        public static ServerInfo Info { get; set; }
 
         void Init()
         {
@@ -181,24 +175,14 @@ namespace LocalDNSProxy.Droid
             this.StartForeground(ID, func("Run"));
         }
 
-        static Socket DNS(string ip, string hosts)
+        static Socket StartDNSServer()
         {
-            MasterFile masterFile = new MasterFile();
 
-
-            foreach (var item in MainActivity.CreateMasterFile(hosts))
-            {
-                MyVpnService.Log($"{item.Item1} {item.Item2}");
-
-                masterFile.AddIPAddressResourceRecord(item.Item1, item.Item2);
-            }
-
-            
-
-            Socket socket = LocalRequestResolver.CreateDNSServer(masterFile,
-                IPAddress.Parse(ip),
+            Socket socket = LocalRequestResolver.CreateDNSServer(Info.MasterFile,
+                Info.DNSAddress,
                 new IPEndPoint(IPAddress.Loopback, 54663),
-                new IPEndPoint(IPAddress.Loopback, 36645));
+                new IPEndPoint(IPAddress.Loopback, 36645),
+                (t) => MyDebugLog.Print(t));
 
 
             return socket;
@@ -209,24 +193,11 @@ namespace LocalDNSProxy.Droid
         {
             Init();
 
-            _isrun = false;
-            
-        }
-
-        [return: GeneratedEnum]
-        public override StartCommandResult OnStartCommand(Intent intent, [GeneratedEnum] StartCommandFlags flags, int startId)
-        {
-            if (_isrun)
-            {
-                return StartCommandResult.NotSticky;
-            }
-
-            _isrun = true;
 
             var handle = new VpnService.Builder(this)
                 .AddAddress("192.168.2.2", 24)
-                .AddRoute("192.168.5.0", 24)
-                .AddDnsServer("192.168.5.123")
+                .AddRoute("192.168.254.254", 32)
+                .AddDnsServer("192.168.254.254")
                 .SetBlocking(true)
                 .AddDisallowedApplication(AppInfo.PackageName)
                 .Establish();
@@ -235,34 +206,14 @@ namespace LocalDNSProxy.Droid
 
             var oustream = new ParcelFileDescriptor.AutoCloseOutputStream(handle);
 
-            var ip = intent.GetStringExtra("ip");
-
-            var hosts = intent.GetStringExtra("hosts");
-
-            MyVpnService.Log(ip);
-            MyVpnService.Log(hosts);
-
-            Socket socket = DNS(ip, hosts);
+            Socket socket = StartDNSServer();
 
 
 
-           var task = Task.Run(() => LocalRequestResolver.Start(inputStream.Read, oustream.Write, socket));
+            var task = Task.Run(() => LocalRequestResolver.Start(inputStream.Read, oustream.Write, socket));
 
-
-            task.ContinueWith((t) =>
-            {
-                if (task.Exception != null)
-                {
-                    Log(task.Exception);
-                }
-            });
-
-
-
-
-            return StartCommandResult.NotSticky;
+            MyDebugLog.Print(task);
         }
-
     }
 
     public static class ServerHelper
@@ -339,16 +290,19 @@ namespace LocalDNSProxy.Droid
         }
 
 
-        static string Create(params string[] ps)
+        static string CreateHosts(params string[] ps)
         {
             return string.Join(System.Environment.NewLine, ps);
         }
 
-        static string Create()
+        static string CreateHosts()
         {
 
-            return Create(
-                "#开头的是注释",
+            return CreateHosts(
+                "#字符开头的是注释",
+                "#支持*号通配符",
+                "localhost 127.0.0.1",
+                "*.localhost 127.0.0.1",
                 "*.iwara.tv 141.101.120.83",
                 "t66y.com 141.101.120.83",
                 "ajax.googleapis.com 127.0.0.5");
@@ -364,7 +318,7 @@ namespace LocalDNSProxy.Droid
 
             if (string.IsNullOrWhiteSpace(IPAddress))
             {
-                ip = "144.144.144.144";
+                ip = "1.1.1.1";
             }
             else
             {
@@ -374,7 +328,7 @@ namespace LocalDNSProxy.Droid
 
             if (string.IsNullOrWhiteSpace(Hosts))
             {
-                hosts = Create();
+                hosts = CreateHosts();
             }
             else
             {
@@ -399,7 +353,7 @@ namespace LocalDNSProxy.Droid
 
 
 
-    [Activity(Label = "LocalDNSProxy", Icon = "@mipmap/icon", Theme = "@style/MainTheme", MainLauncher = true, ConfigurationChanges = ConfigChanges.ScreenSize | ConfigChanges.Orientation | ConfigChanges.UiMode | ConfigChanges.ScreenLayout | ConfigChanges.SmallestScreenSize )]
+    [Activity(Label = "本地hosts", Icon = "@mipmap/icon", Theme = "@style/MainTheme", MainLauncher = true, ConfigurationChanges = ConfigChanges.ScreenSize | ConfigChanges.Orientation | ConfigChanges.UiMode | ConfigChanges.ScreenLayout | ConfigChanges.SmallestScreenSize )]
     public class MainActivity : global::Xamarin.Forms.Platform.Android.FormsAppCompatActivity
     {
         protected override void OnCreate(Bundle savedInstanceState)
@@ -409,35 +363,37 @@ namespace LocalDNSProxy.Droid
             Xamarin.Essentials.Platform.Init(this, savedInstanceState);
             global::Xamarin.Forms.Forms.Init(this, savedInstanceState);
 
-
-            Xamarin.Essentials.Permissions.RequestAsync<Permissions.StorageWrite>();
-
-
-
-            AppDomain.CurrentDomain.FirstChanceException += CurrentDomain_FirstChanceException;
-
-            AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
-
-            TaskScheduler.UnobservedTaskException += TaskScheduler_UnobservedTaskException;
-
-            AndroidEnvironment.UnhandledExceptionRaiser += AndroidEnvironment_UnhandledExceptionRaiser;
-
-
-            LoadApplication(new App(new MainPageInfo(AppSetting.Get(), (info) => Ckuck(info), CreateVpn)));
-
+#if MY_DEBUG
             
+            Xamarin.Essentials.Permissions.RequestAsync<Permissions.StorageWrite>();
+            MyDebugLog.AddEvent();
+
+#endif
+
+
+            LoadApplication(new App(new MainPageInfo(AppSetting.Get(), (info) => Check(info), CreateVpn)));        
         }
 
-        static string[] Remove(string s)
+
+
+
+        public override void OnRequestPermissionsResult(int requestCode, string[] permissions, [GeneratedEnum] Android.Content.PM.Permission[] grantResults)
+        {
+            Xamarin.Essentials.Platform.OnRequestPermissionsResult(requestCode, permissions, grantResults);
+
+            base.OnRequestPermissionsResult(requestCode, permissions, grantResults);
+        }
+
+
+        static string[] RemoveComment(string s)
         {
             return s.Split(System.Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
                 .Where((s) => s.StartsWith("#") == false)
                 .Where((s) => string.IsNullOrWhiteSpace(s) == false)
                 .ToArray();
-
         }
 
-        static void PraseHost(string s)
+        static void CheckHost(string s)
         {
 
             if (s.StartsWith("*"))
@@ -456,11 +412,12 @@ namespace LocalDNSProxy.Droid
             }
         }
 
-        public static (string,string)[] CreateMasterFile(string s)
+        static MasterFile CreateMasterFile(string s)
         {
-            
-            var vs = new List<(string, string)>();
-            foreach (var item in Remove(s))
+
+            MasterFile masterFile = new MasterFile();
+
+            foreach (var item in RemoveComment(s))
             {
                 var kv = item.Split(" ", 3, StringSplitOptions.RemoveEmptyEntries);
 
@@ -475,11 +432,11 @@ namespace LocalDNSProxy.Droid
                     }
 
 
-                    PraseHost(kv[0]);
+                    CheckHost(kv[0]);
 
 
 
-                    vs.Add((kv[0], IPAddress.Parse(kv[1]).ToString()));
+                    masterFile.AddIPAddressResourceRecord(kv[0], IPAddress.Parse(kv[1]).ToString());
 
                 }
                 catch (FormatException)
@@ -488,26 +445,38 @@ namespace LocalDNSProxy.Droid
                 }
             }
 
-            return vs.ToArray();
+            return masterFile;
         }
 
         
 
-        static void Ckuck(StartInfo startInfo)
+        static ServerInfo Check(StartInfo startInfo)
         {
-            IPAddress.Parse(startInfo.IPAddress);
-            CreateMasterFile(startInfo.Hosts);
+            IPAddress address;
+            try
+            {
+                address = IPAddress.Parse(startInfo.IPAddress);
+            }
+            catch (FormatException)
+            {
+                throw new FormatException($"错误的DNS服务器地址:{startInfo.IPAddress}");
+            }
+
+            
+            MasterFile masterFile = CreateMasterFile(startInfo.Hosts);
 
             AppSetting.Set(startInfo);
 
+
+            return new ServerInfo(address, masterFile);
+
         }
 
-        StartInfo _info;
         void CreateVpn(StartInfo info)
         {
-            Ckuck(info);
+            MyVpnService.Info = Check(info);
 
-            _info = info;
+
             Intent inter = VpnService.Prepare(this);
 
 
@@ -530,31 +499,48 @@ namespace LocalDNSProxy.Droid
 
                 Intent inter = new Intent(this, typeof(MyVpnService));
 
-
-                inter.PutExtra("ip", _info.IPAddress);
-
-                inter.PutExtra("hosts", _info.Hosts);
-
-
                 ServerHelper.StartServer(this, inter);
             }
 
         }
 
+    }
 
-        public override void OnRequestPermissionsResult(int requestCode, string[] permissions, [GeneratedEnum] Android.Content.PM.Permission[] grantResults)
+
+    public static class MyDebugLog
+    {
+        const string MY_DEBUG = "MY_DEBUG";
+
+        [System.Diagnostics.Conditional(MY_DEBUG)]
+        public static void Print(string s)
         {
-            Xamarin.Essentials.Platform.OnRequestPermissionsResult(requestCode, permissions, grantResults);
-
-            base.OnRequestPermissionsResult(requestCode, permissions, grantResults);
+            Log("Print", s);
         }
 
-
-
-
-        static void CurrentDomain_FirstChanceException(object sender, System.Runtime.ExceptionServices.FirstChanceExceptionEventArgs e)
+        [System.Diagnostics.Conditional(MY_DEBUG)]
+        public static void Print(Task task)
         {
-            Log("FirstChanceException", e.Exception);
+            task.ContinueWith((t) =>
+            {
+                if (t.Exception is null)
+                {
+
+                }
+                else
+                {
+                    Log("TaskException", t.Exception);
+                }
+            });
+        }
+
+        [System.Diagnostics.Conditional(MY_DEBUG)]
+        public static void AddEvent()
+        {
+            AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
+
+            TaskScheduler.UnobservedTaskException += TaskScheduler_UnobservedTaskException;
+
+            AndroidEnvironment.UnhandledExceptionRaiser += AndroidEnvironment_UnhandledExceptionRaiser;
         }
 
         static void TaskScheduler_UnobservedTaskException(object sender, UnobservedTaskExceptionEventArgs e)
@@ -572,20 +558,19 @@ namespace LocalDNSProxy.Droid
             Log("Android", e.Exception);
         }
 
-        
+
         private static readonly object _lock = new object();
 
-        public static void Log(string name, object e)
+        static void Log(string name, object e)
         {
             lock (_lock)
             {
 
                 string s = System.Environment.NewLine;
 
-                System.IO.File.AppendAllText($"/storage/emulated/0/dns.{name}.txt", $"{s}{s}{s}{s}{DateTime.Now}{s}{e}", System.Text.Encoding.UTF8);
+                System.IO.File.AppendAllText($"/storage/emulated/0/{AppInfo.Name}.{name}.txt", $"{s}{s}{s}{s}{DateTime.Now}{s}{e}", System.Text.Encoding.UTF8);
             }
 
         }
-
     }
 }

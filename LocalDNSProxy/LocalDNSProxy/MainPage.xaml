@@ -8,16 +8,23 @@
             <RowDefinition Height="Auto"></RowDefinition>
             <RowDefinition Height="Auto"></RowDefinition>
             <RowDefinition Height="Auto"></RowDefinition>
+            <RowDefinition Height="Auto"></RowDefinition>
+            <RowDefinition Height="Auto"></RowDefinition>
         </Grid.RowDefinitions>
         <Editor Grid.Row="0"
                 x:Name="_hosts"></Editor>
-        <Entry Grid.Row="1"
+        <Label Grid.Row="1"
+               Text="下面是DNS服务器地址"></Label>
+        <Entry Grid.Row="2"
                x:Name="_ipaddress"></Entry>
-        <Button Grid.Row="2"
-                Clicked="OnSave"
-                Text="保存"></Button>
         <Button Grid.Row="3"
+                Clicked="OnSave"
+                Text="检查输入并且保存输入"></Button>
+        <Button Grid.Row="4"
                 Clicked="OnStart"
-                Text="开始"></Button>
+                Text="启动服务"></Button>
+        <Button Grid.Row="5"
+                Clicked="OnHelp"
+                Text="帮助与说明"></Button>
     </Grid>
 </ContentPage>
