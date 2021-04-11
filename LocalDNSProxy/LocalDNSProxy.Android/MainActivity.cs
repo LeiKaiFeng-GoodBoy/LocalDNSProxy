@@ -19,9 +19,12 @@ using DNS.Server;
 using System.Threading;
 using System.Linq;
 using LeiKaiFeng.TCPIP;
+using System.Collections.Generic;
 
 namespace LocalDNSProxy.Droid
 {
+
+
 
     public sealed class LocalRequestResolver : IRequestResolver
     {
@@ -85,7 +88,16 @@ namespace LocalDNSProxy.Droid
 
             DnsServer server = new DnsServer(new LocalRequestResolver(masterFile), defaultDnsServer);
 
-            server.Listen(localDnsServerBind);
+            var task = server.Listen(localDnsServerBind);
+
+            task.ContinueWith((t) =>
+            {
+                if (task.Exception != null)
+                {
+                    MyVpnService.Log(task.Exception);
+                }
+            });
+
 
 
             Socket socket = new Socket(AddressFamily.InterNetwork, System.Net.Sockets.SocketType.Dgram, ProtocolType.Udp);
@@ -135,12 +147,11 @@ namespace LocalDNSProxy.Droid
     }
 
 
-
-
     [Service(Permission = "android.permission.BIND_VPN_SERVICE")]
     [IntentFilter(actions: new string[] { VpnService.ServiceInterface })]
     public sealed class MyVpnService : VpnService
     {
+       
         private static readonly object s_lock = new object();
 
         public static void Log(object e)
@@ -153,6 +164,7 @@ namespace LocalDNSProxy.Droid
             }
         }
 
+        bool _isrun;
 
         void Init()
         {
@@ -169,20 +181,25 @@ namespace LocalDNSProxy.Droid
             this.StartForeground(ID, func("Run"));
         }
 
-        static Socket DNS()
+        static Socket DNS(string ip, string hosts)
         {
-
             MasterFile masterFile = new MasterFile();
 
-            masterFile.AddIPAddressResourceRecord("*.iwara.tv", "141.101.120.83");
-            masterFile.AddIPAddressResourceRecord("t66y.com", "141.101.120.83");
-            masterFile.AddIPAddressResourceRecord("ajax.googleapis.com", "127.0.0.5");
 
+            foreach (var item in MainActivity.CreateMasterFile(hosts))
+            {
+                MyVpnService.Log($"{item.Item1} {item.Item2}");
+
+                masterFile.AddIPAddressResourceRecord(item.Item1, item.Item2);
+            }
+
+            
 
             Socket socket = LocalRequestResolver.CreateDNSServer(masterFile,
-                IPAddress.Parse("114.114.114.114"),
+                IPAddress.Parse(ip),
                 new IPEndPoint(IPAddress.Loopback, 54663),
                 new IPEndPoint(IPAddress.Loopback, 36645));
+
 
             return socket;
 
@@ -192,6 +209,19 @@ namespace LocalDNSProxy.Droid
         {
             Init();
 
+            _isrun = false;
+            
+        }
+
+        [return: GeneratedEnum]
+        public override StartCommandResult OnStartCommand(Intent intent, [GeneratedEnum] StartCommandFlags flags, int startId)
+        {
+            if (_isrun)
+            {
+                return StartCommandResult.NotSticky;
+            }
+
+            _isrun = true;
 
             var handle = new VpnService.Builder(this)
                 .AddAddress("192.168.2.2", 24)
@@ -205,12 +235,33 @@ namespace LocalDNSProxy.Droid
 
             var oustream = new ParcelFileDescriptor.AutoCloseOutputStream(handle);
 
+            var ip = intent.GetStringExtra("ip");
 
-            Task.Run(() => LocalRequestResolver.Start(inputStream.Read, oustream.Write, DNS()));
+            var hosts = intent.GetStringExtra("hosts");
 
-            
+            MyVpnService.Log(ip);
+            MyVpnService.Log(hosts);
+
+            Socket socket = DNS(ip, hosts);
+
+
+
+           var task = Task.Run(() => LocalRequestResolver.Start(inputStream.Read, oustream.Write, socket));
+
+
+            task.ContinueWith((t) =>
+            {
+                if (task.Exception != null)
+                {
+                    Log(task.Exception);
+                }
+            });
+
+
+
+
+            return StartCommandResult.NotSticky;
         }
-
 
     }
 
@@ -271,6 +322,82 @@ namespace LocalDNSProxy.Droid
     }
 
 
+    static class AppSetting
+    {
+        static string IPAddress
+        {
+            get => Preferences.Get(nameof(IPAddress), string.Empty);
+
+            set => Preferences.Set(nameof(IPAddress), value);
+        }
+
+        static string Hosts
+        {
+            get => Preferences.Get(nameof(Hosts), string.Empty);
+
+            set => Preferences.Set(nameof(Hosts), value);
+        }
+
+
+        static string Create(params string[] ps)
+        {
+            return string.Join(System.Environment.NewLine, ps);
+        }
+
+        static string Create()
+        {
+
+            return Create(
+                "#开头的是注释",
+                "*.iwara.tv 141.101.120.83",
+                "t66y.com 141.101.120.83",
+                "ajax.googleapis.com 127.0.0.5");
+        }
+
+
+        public static StartInfo Get()
+        {
+            string ip;
+
+            string hosts;
+
+
+            if (string.IsNullOrWhiteSpace(IPAddress))
+            {
+                ip = "144.144.144.144";
+            }
+            else
+            {
+                ip = IPAddress;
+            }
+
+
+            if (string.IsNullOrWhiteSpace(Hosts))
+            {
+                hosts = Create();
+            }
+            else
+            {
+                hosts = Hosts;
+            }
+
+
+
+            return new StartInfo(ip, hosts);
+        }
+
+
+
+        public static void Set(StartInfo info)
+        {
+
+            Hosts = info.Hosts;
+
+            IPAddress = info.IPAddress;
+        }
+    }
+
+
 
     [Activity(Label = "LocalDNSProxy", Icon = "@mipmap/icon", Theme = "@style/MainTheme", MainLauncher = true, ConfigurationChanges = ConfigChanges.ScreenSize | ConfigChanges.Orientation | ConfigChanges.UiMode | ConfigChanges.ScreenLayout | ConfigChanges.SmallestScreenSize )]
     public class MainActivity : global::Xamarin.Forms.Platform.Android.FormsAppCompatActivity
@@ -281,13 +408,106 @@ namespace LocalDNSProxy.Droid
 
             Xamarin.Essentials.Platform.Init(this, savedInstanceState);
             global::Xamarin.Forms.Forms.Init(this, savedInstanceState);
-            LoadApplication(new App());
 
-            CreateVpn();
+
+            Xamarin.Essentials.Permissions.RequestAsync<Permissions.StorageWrite>();
+
+
+
+            AppDomain.CurrentDomain.FirstChanceException += CurrentDomain_FirstChanceException;
+
+            AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
+
+            TaskScheduler.UnobservedTaskException += TaskScheduler_UnobservedTaskException;
+
+            AndroidEnvironment.UnhandledExceptionRaiser += AndroidEnvironment_UnhandledExceptionRaiser;
+
+
+            LoadApplication(new App(new MainPageInfo(AppSetting.Get(), (info) => Ckuck(info), CreateVpn)));
+
+            
         }
 
-        void CreateVpn()
+        static string[] Remove(string s)
         {
+            return s.Split(System.Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
+                .Where((s) => s.StartsWith("#") == false)
+                .Where((s) => string.IsNullOrWhiteSpace(s) == false)
+                .ToArray();
+
+        }
+
+        static void PraseHost(string s)
+        {
+
+            if (s.StartsWith("*"))
+            {
+                s = "www" + s.Remove(0, 1);
+            }
+
+
+            if (System.Uri.CheckHostName(s) == UriHostNameType.Dns)
+            {
+
+            }
+            else
+            {
+                throw new UriFormatException();
+            }
+        }
+
+        public static (string,string)[] CreateMasterFile(string s)
+        {
+            
+            var vs = new List<(string, string)>();
+            foreach (var item in Remove(s))
+            {
+                var kv = item.Split(" ", 3, StringSplitOptions.RemoveEmptyEntries);
+
+
+
+
+                try
+                {
+                    if (kv.Length < 2)
+                    {
+                        throw new FormatException();
+                    }
+
+
+                    PraseHost(kv[0]);
+
+
+
+                    vs.Add((kv[0], IPAddress.Parse(kv[1]).ToString()));
+
+                }
+                catch (FormatException)
+                {
+                    throw new FormatException($"{item} 这一项存在错误");
+                }
+            }
+
+            return vs.ToArray();
+        }
+
+        
+
+        static void Ckuck(StartInfo startInfo)
+        {
+            IPAddress.Parse(startInfo.IPAddress);
+            CreateMasterFile(startInfo.Hosts);
+
+            AppSetting.Set(startInfo);
+
+        }
+
+        StartInfo _info;
+        void CreateVpn(StartInfo info)
+        {
+            Ckuck(info);
+
+            _info = info;
             Intent inter = VpnService.Prepare(this);
 
 
@@ -308,7 +528,15 @@ namespace LocalDNSProxy.Droid
             if (resultCode == Result.Ok)
             {
 
-                ServerHelper.StartServer(this, new Intent(this, typeof(MyVpnService)));
+                Intent inter = new Intent(this, typeof(MyVpnService));
+
+
+                inter.PutExtra("ip", _info.IPAddress);
+
+                inter.PutExtra("hosts", _info.Hosts);
+
+
+                ServerHelper.StartServer(this, inter);
             }
 
         }
@@ -320,5 +548,44 @@ namespace LocalDNSProxy.Droid
 
             base.OnRequestPermissionsResult(requestCode, permissions, grantResults);
         }
+
+
+
+
+        static void CurrentDomain_FirstChanceException(object sender, System.Runtime.ExceptionServices.FirstChanceExceptionEventArgs e)
+        {
+            Log("FirstChanceException", e.Exception);
+        }
+
+        static void TaskScheduler_UnobservedTaskException(object sender, UnobservedTaskExceptionEventArgs e)
+        {
+            Log("TaskScheduler", e.Exception);
+        }
+
+        static void CurrentDomain_UnhandledException(object sender, UnhandledExceptionEventArgs e)
+        {
+            Log("Domain", e.ExceptionObject);
+        }
+
+        static void AndroidEnvironment_UnhandledExceptionRaiser(object sender, RaiseThrowableEventArgs e)
+        {
+            Log("Android", e.Exception);
+        }
+
+        
+        private static readonly object _lock = new object();
+
+        public static void Log(string name, object e)
+        {
+            lock (_lock)
+            {
+
+                string s = System.Environment.NewLine;
+
+                System.IO.File.AppendAllText($"/storage/emulated/0/dns.{name}.txt", $"{s}{s}{s}{s}{DateTime.Now}{s}{e}", System.Text.Encoding.UTF8);
+            }
+
+        }
+
     }
 }

@@ -4,13 +4,20 @@
              x:Class="LocalDNSProxy.MainPage">
     <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"></RowDefinition>
             <RowDefinition Height="*"></RowDefinition>
             <RowDefinition Height="Auto"></RowDefinition>
+            <RowDefinition Height="Auto"></RowDefinition>
+            <RowDefinition Height="Auto"></RowDefinition>
         </Grid.RowDefinitions>
-        <Editor Grid.Row="1"
+        <Editor Grid.Row="0"
                 x:Name="_hosts"></Editor>
+        <Entry Grid.Row="1"
+               x:Name="_ipaddress"></Entry>
         <Button Grid.Row="2"
-                Clicked="OnStart"></Button>
+                Clicked="OnSave"
+                Text="保存"></Button>
+        <Button Grid.Row="3"
+                Clicked="OnStart"
+                Text="开始"></Button>
     </Grid>
 </ContentPage>

@@ -6,11 +6,11 @@ namespace LocalDNSProxy
 {
     public partial class App : Application
     {
-        public App()
+        public App(MainPageInfo info)
         {
             InitializeComponent();
 
-            MainPage = new MainPage();
+            MainPage = new MainPage(info);
         }
 
         protected override void OnStart()
