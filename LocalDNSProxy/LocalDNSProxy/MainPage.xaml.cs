@@ -27,11 +27,12 @@ namespace LocalDNSProxy
 
     public sealed class MainPageInfo
     {
-        public MainPageInfo(StartInfo startInfo, Action<StartInfo> saveAction, Action<StartInfo> startAction)
+        public MainPageInfo(StartInfo startInfo, Action<StartInfo> saveAction, Action<StartInfo> startAction, Action stopAction)
         {
             StartInfo = startInfo ?? throw new ArgumentNullException(nameof(startInfo));
             SaveAction = saveAction ?? throw new ArgumentNullException(nameof(saveAction));
             StartAction = startAction ?? throw new ArgumentNullException(nameof(startAction));
+            StopAction = stopAction ?? throw new ArgumentNullException(nameof(stopAction));
         }
 
         public StartInfo StartInfo { get; }
@@ -41,6 +42,8 @@ namespace LocalDNSProxy
 
         public Action<StartInfo> StartAction { get; }
 
+
+        public Action StopAction { get; }
     }
 
 
@@ -104,6 +107,11 @@ namespace LocalDNSProxy
 
 
             DisplayAlert("帮助与说明", MESSAGE, "确定");
+        }
+
+        private void OnStop(object sender, EventArgs e)
+        {
+            _info.StopAction();
         }
     }
 }

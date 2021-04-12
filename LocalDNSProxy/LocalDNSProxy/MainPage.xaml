@@ -10,6 +10,7 @@
             <RowDefinition Height="Auto"></RowDefinition>
             <RowDefinition Height="Auto"></RowDefinition>
             <RowDefinition Height="Auto"></RowDefinition>
+            <RowDefinition Height="Auto"></RowDefinition>
         </Grid.RowDefinitions>
         <Editor Grid.Row="0"
                 x:Name="_hosts"></Editor>
@@ -24,6 +25,9 @@
                 Clicked="OnStart"
                 Text="启动服务"></Button>
         <Button Grid.Row="5"
+                Clicked="OnStop"
+                Text="无用的按钮"></Button>
+        <Button Grid.Row="6"
                 Clicked="OnHelp"
                 Text="帮助与说明"></Button>
     </Grid>

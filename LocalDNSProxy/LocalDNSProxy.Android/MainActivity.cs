@@ -1,4 +1,5 @@
-﻿using System;
+﻿#define MY_DEBUG
+using System;
 
 using Android.App;
 using Android.Content.PM;
@@ -75,7 +76,7 @@ namespace LocalDNSProxy.Droid
         }
 
 
-        public static Socket CreateDNSServer(
+        public static (DnsServer, Socket) CreateDNSServer(
             MasterFile masterFile,
             IPAddress defaultDnsServer,
             IPEndPoint localDnsServerBind,
@@ -101,7 +102,7 @@ namespace LocalDNSProxy.Droid
 
             socket.Connect(localDnsServerBind);
 
-            return socket;
+            return (server, socket);
         }
 
 
@@ -169,24 +170,22 @@ namespace LocalDNSProxy.Droid
 
             ServerHelper.CreateNotificationChannel(this, CHNNEL_ID, CHNNEL_NAME);
 
-
-            var func = ServerHelper.CreateServerNotificationFunc(AppInfo.Name, this, CHNNEL_ID);
+            var func = ServerHelper.CreateServerNotificationFunc(
+                PendingIntent.GetActivity(this, 0, new Intent(this, typeof(MainActivity)), 0),
+                AppInfo.Name,
+                this, CHNNEL_ID);
 
             this.StartForeground(ID, func("Run"));
         }
 
-        static Socket StartDNSServer()
+        (DnsServer, Socket) StartDNSServer()
         {
 
-            Socket socket = LocalRequestResolver.CreateDNSServer(Info.MasterFile,
+            return LocalRequestResolver.CreateDNSServer(Info.MasterFile,
                 Info.DNSAddress,
                 new IPEndPoint(IPAddress.Loopback, 54663),
                 new IPEndPoint(IPAddress.Loopback, 36645),
                 (t) => MyDebugLog.Print(t));
-
-
-            return socket;
-
         }
 
         public override void OnCreate()
@@ -206,13 +205,20 @@ namespace LocalDNSProxy.Droid
 
             var oustream = new ParcelFileDescriptor.AutoCloseOutputStream(handle);
 
-            Socket socket = StartDNSServer();
+            var v = StartDNSServer();
 
+            new Thread(() =>
+            {
+                try
+                {
+                    LocalRequestResolver.Start(inputStream.Read, oustream.Write, v.Item2);
+                }
+                catch (Exception e)
+                {
 
-
-            var task = Task.Run(() => LocalRequestResolver.Start(inputStream.Read, oustream.Write, socket));
-
-            MyDebugLog.Print(task);
+                    MyDebugLog.Print(e.ToString());
+                }
+            }).Start();
         }
     }
 
@@ -258,15 +264,18 @@ namespace LocalDNSProxy.Droid
         }
 
 
-        public static Func<string, Notification> CreateServerNotificationFunc(string contentTitle, Context context, string channelID)
+        public static Func<string, Notification> CreateServerNotificationFunc(PendingIntent pendingIntent, string contentTitle, Context context, string channelID)
         {
             return (contentText) =>
             {
+                
                 return new NotificationCompat.Builder(context, channelID)
                                .SetContentTitle(contentTitle)
                                .SetContentText(contentText)
                                .SetSmallIcon(Resource.Drawable.icon)
                                .SetOngoing(true)
+                               .SetContentIntent(pendingIntent)
+                               .SetPriority(NotificationCompat.PriorityMax)
                                .Build();
             };
         }
@@ -356,6 +365,8 @@ namespace LocalDNSProxy.Droid
     [Activity(Label = "本地hosts", Icon = "@drawable/icon", Theme = "@style/MainTheme", MainLauncher = true, ConfigurationChanges = ConfigChanges.ScreenSize | ConfigChanges.Orientation | ConfigChanges.UiMode | ConfigChanges.ScreenLayout | ConfigChanges.SmallestScreenSize )]
     public class MainActivity : global::Xamarin.Forms.Platform.Android.FormsAppCompatActivity
     {
+
+        bool _isrun;
         protected override void OnCreate(Bundle savedInstanceState)
         {
             base.OnCreate(savedInstanceState);
@@ -369,9 +380,22 @@ namespace LocalDNSProxy.Droid
             MyDebugLog.AddEvent();
 
 #endif
+            _isrun = false;
 
+            //Connectivity.ConnectivityChanged += (obj, e) =>
+            //{
+            //    MainThread.BeginInvokeOnMainThread(() =>
+            //    {
+            //        if (_isrun)
+            //        {
+            //            StopVpn();
 
-            LoadApplication(new App(new MainPageInfo(AppSetting.Get(), (info) => Check(info), CreateVpn)));        
+            //            StartVpn();
+            //        }
+            //    });
+            //};
+
+            LoadApplication(new App(new MainPageInfo(AppSetting.Get(), (info) => Check(info), CreateVpn, StopVpn)));        
         }
 
 
@@ -384,6 +408,23 @@ namespace LocalDNSProxy.Droid
             base.OnRequestPermissionsResult(requestCode, permissions, grantResults);
         }
 
+        void PowerSettings()
+        {
+            //REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+            if (Build.VERSION.SdkInt >=  BuildVersionCodes.M)
+            {
+                Intent intent = new Intent();
+                string packageName = AppInfo.PackageName;
+                PowerManager pm = (PowerManager)GetSystemService(Service.PowerService);
+                if (!pm.IsIgnoringBatteryOptimizations(packageName))
+                {
+                    
+                    intent.SetAction(Android.Provider.Settings.ActionRequestIgnoreBatteryOptimizations);
+                    intent.SetData(Android.Net.Uri.Parse("package:" + packageName));
+                    StartActivity(intent);
+                }
+            }
+        }
 
         static string[] RemoveComment(string s)
         {
@@ -472,12 +513,19 @@ namespace LocalDNSProxy.Droid
 
         }
 
+        void StopVpn()
+        {
+            _isrun = false;
+        }
+
         void CreateVpn(StartInfo info)
         {
             MyVpnService.Info = Check(info);
 
 
             Intent inter = VpnService.Prepare(this);
+
+            //PowerSettings();
 
 
             if (inter is null)
@@ -492,14 +540,28 @@ namespace LocalDNSProxy.Droid
             }
         }
 
+        void StartVpn()
+        {
+            _isrun = true;
+
+            Intent inter = new Intent(this, typeof(MyVpnService));
+
+            ServerHelper.StartServer(this, inter);
+        }
+
         protected override void OnActivityResult(int requestCode, Result resultCode, Android.Content.Intent data)
         {
             if (resultCode == Result.Ok)
             {
 
-                Intent inter = new Intent(this, typeof(MyVpnService));
+                if (_isrun)
+                {
 
-                ServerHelper.StartServer(this, inter);
+                    StopVpn();
+
+                }
+
+                StartVpn();
             }
 
         }
@@ -568,7 +630,7 @@ namespace LocalDNSProxy.Droid
 
                 string s = System.Environment.NewLine;
 
-                System.IO.File.AppendAllText($"/storage/emulated/0/{AppInfo.Name}.{name}.txt", $"{s}{s}{s}{s}{DateTime.Now}{s}{e}", System.Text.Encoding.UTF8);
+                System.IO.File.AppendAllText($"/storage/emulated/0/myappex.{name}.txt", $"{s}{s}{s}{s}{DateTime.Now}{s}{e}", System.Text.Encoding.UTF8);
             }
 
         }
