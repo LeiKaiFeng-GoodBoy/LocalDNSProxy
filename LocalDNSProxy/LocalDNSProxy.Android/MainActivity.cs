@@ -1,5 +1,4 @@
-﻿#define MY_DEBUG
-using System;
+﻿using System;
 
 using Android.App;
 using Android.Content.PM;

@@ -5,7 +5,12 @@ VisualStudioVersion = 16.0.31112.23
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LocalDNSProxy.Android", "LocalDNSProxy\LocalDNSProxy.Android\LocalDNSProxy.Android.csproj", "{80FA661A-D73A-453F-9612-903C575FC4A8}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LocalDNSProxy", "LocalDNSProxy\LocalDNSProxy\LocalDNSProxy.csproj", "{CC029807-045B-4F4F-AEB9-CDEE118FF7AB}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "LocalDNSProxy", "LocalDNSProxy\LocalDNSProxy\LocalDNSProxy.csproj", "{CC029807-045B-4F4F-AEB9-CDEE118FF7AB}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{949C9038-AB4D-48F2-A1AB-11D9D4AA12BC}"
+	ProjectSection(SolutionItems) = preProject
+		README.md = README.md
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
