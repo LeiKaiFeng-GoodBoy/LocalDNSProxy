@@ -33,7 +33,7 @@ var handle = new VpnService.Builder(this)
 
 比如示例
 
-`
+```C#
         static Func<Quaternion, Quaternion> CreateAs(ushort sourcePort, ushort desPort)
         {
             //一言蔽之，就是，
@@ -82,4 +82,4 @@ var handle = new VpnService.Builder(this)
                 }
             };
         }
-`
+```
