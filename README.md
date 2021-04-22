@@ -4,7 +4,7 @@
 因为Github访问不太稳定，所以索性放在了蓝奏云中
 
 主要原理就是这一块代码
-`
+```C#
 var handle = new VpnService.Builder(this)
                 .AddAddress("192.168.2.2", 24)
                 .AddRoute("192.168.254.254", 32)
@@ -12,7 +12,7 @@ var handle = new VpnService.Builder(this)
                 .SetBlocking(true)
                 .AddDisallowedApplication(AppInfo.PackageName)
                 .Establish();
-`
+```
 
 通过VPN接口，设置了DNSServer，把我自己排除在VPN外，
 但是只有ipv4地址192.168.254.254会传递给我的应用，而192.168.254.254被我设定为了DNSServer，
